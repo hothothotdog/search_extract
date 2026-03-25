@@ -4,7 +4,7 @@ import fnmatch
 import shutil
 import subprocess
 import argparse
-import winsound  # Standard on Windows
+# import winsound  # Standard on Windows
 from collections import Counter
 from datetime import datetime
 from tqdm import tqdm  # Ensure you run 'pip install tqdm' first
@@ -13,21 +13,21 @@ from tqdm import tqdm  # Ensure you run 'pip install tqdm' first
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 MSDOS_EXE   = os.path.join(SCRIPT_DIR, 'msdos.exe')
 PKUNZIP_EXE = os.path.join(SCRIPT_DIR, 'PKUNZIP.EXE')
-PKXARC_EXE  = os.path.join(SCRIPT_DIR, 'PKUNPAK.EXE')
+PKUNPAK_EXE  = os.path.join(SCRIPT_DIR, 'PKUNPAK.EXE')
 
-def play_success_sound():
+#def play_success_sound():
     # Plays a three-note rising chime
-    winsound.Beep(440, 200)
-    winsound.Beep(554, 200)
-    winsound.Beep(659, 400)
+#    winsound.Beep(440, 200)
+#    winsound.Beep(554, 200)
+#    winsound.Beep(659, 400)
 
 def get_sort_folder(matches, wildcard_pattern, target_exts, sorted_root):
     """
     Determine which subfolder inside _sorted this ZIP should go into.
-    - Single extension match   -> _sorted/.ima/  (etc.)
-    - Wildcard-only match      -> _sorted/_wildcard/
-    - Multiple extensions      -> _sorted/mixed/
-    - Wildcard + ext(s)        -> _sorted/mixed/
+    - Single extension match   -> _sorted_zip/.ima/  (etc.)
+    - Wildcard-only match      -> _sorted_zip/_wildcard/
+    - Multiple extensions      -> _sorted_zip/mixed/
+    - Wildcard + ext(s)        -> _sorted_zip/mixed/
     """
     exts_found = set()
     has_wildcard = False
@@ -143,7 +143,7 @@ def process_nested_zips(folder, error_log, depth=0, max_depth=10, processed=None
             # Write metadata
             comment_bytes = read_zip_comment_raw(nested_zip_path)
             disk_label = read_disk_label(nested_zip_path)
-            meta_path = os.path.join(nested_dest, f"__{item}__metadata.txt")
+            meta_path = os.path.join(nested_dest, f"__{item}__metadata.nfo")
             with open(meta_path, 'wb') as m:
                 m.write(f"Source ZIP: {item}\n".encode('utf-8'))
                 m.write(f"Disk Label: {disk_label}\n".encode('utf-8'))
@@ -175,7 +175,7 @@ def process_nested_zips(folder, error_log, depth=0, max_depth=10, processed=None
             )
             comment_bytes = read_zip_comment_raw(moved_zip)
             disk_label = read_disk_label(moved_zip)
-            meta_path = os.path.join(nested_dest, f"__{item}__metadata.txt")
+            meta_path = os.path.join(nested_dest, f"__{item}__metadata.nfo")
             with open(meta_path, 'wb') as m:
                 m.write(f"Source ZIP: {item}\n".encode('utf-8'))
                 m.write(f"Disk Label: {disk_label}\n".encode('utf-8'))
@@ -256,8 +256,37 @@ def read_arc_comment(arc_path):
         return b''
 
 
+def get_arc_members(arc_path):
+    """
+    Read member filenames from an ARC file by scanning headers.
+    Returns a list of member filename strings.
+    """
+    members = []
+    try:
+        with open(arc_path, 'rb') as f:
+            data = f.read()
+        pos = 0
+        while pos < len(data):
+            if data[pos] != 0x1a:
+                break
+            header_type = data[pos + 1] if pos + 1 < len(data) else 0
+            if header_type == 0:
+                break
+            name_end = data.find(b'\x00', pos + 2, pos + 17)
+            if name_end == -1:
+                break
+            name = data[pos + 2:name_end].decode('ascii', errors='replace').lower()
+            members.append(name)
+            size = int.from_bytes(data[pos + 15:pos + 19], 'little') if pos + 19 <= len(data) else 0
+            pos += 29 + size
+    except Exception:
+        pass
+    return members
+
 def process_arcs(report_file, error_file, arc_buffer, arc_crc_buffer,
-                 total_arc, total_arc_crc):
+                 total_arc, total_arc_crc, process_all=True, target_exts=(),
+                 extension_counts=None, total_matches=0,
+                 total_skipped=0, total_successful=0, total_processed=0):
     """
     Scan recursively for .arc files, extract with PKXARC via msdos.exe,
     write metadata, and sort into _sorted_arc/Arc/<name>/.
@@ -268,7 +297,7 @@ def process_arcs(report_file, error_file, arc_buffer, arc_crc_buffer,
     arc_err_root = os.path.join(arc_root, 'CRC-Errors')
 
     print("Pre-scanning for ARC files...")
-    sorted_root  = os.path.abspath('_sorted')
+    sorted_root  = os.path.abspath('_sorted_zip')
     arc_tasks = []
     for root, dirs, files in os.walk('.'):
         # Don't walk into any of our output folders
@@ -280,7 +309,44 @@ def process_arcs(report_file, error_file, arc_buffer, arc_crc_buffer,
 
     if not arc_tasks:
         print("No ARC files found.")
-        return total_arc, total_arc_crc
+        return total_arc, total_arc_crc, total_matches, total_skipped, total_successful, total_processed
+
+    # Apply extension filter if --ext flag is set
+    if not process_all and target_exts:
+        filtered = []
+        for root, file in arc_tasks:
+            arc_path = os.path.normpath(os.path.join(root, file))
+            try:
+                with open(arc_path, 'rb') as f:
+                    data = f.read()
+                # Scan ARC member headers for matching extensions
+                pos = 0
+                matched = False
+                while pos < len(data):
+                    if data[pos] != 0x1a:
+                        break
+                    header_type = data[pos + 1] if pos + 1 < len(data) else 0
+                    if header_type == 0:
+                        break
+                    name_end = data.find(b'\x00', pos + 2, pos + 17)
+                    if name_end == -1:
+                        break
+                    name = data[pos + 2:name_end].decode('ascii', errors='replace').lower()
+                    if any(name.endswith(ext) for ext in target_exts):
+                        matched = True
+                        break
+                    size = int.from_bytes(data[pos + 15:pos + 19], 'little') if pos + 19 <= len(data) else 0
+                    pos += 29 + size
+                if matched:
+                    filtered.append((root, file))
+            except Exception:
+                pass
+        arc_tasks_all = arc_tasks
+        arc_tasks = filtered
+        total_skipped += len(arc_tasks_all) - len(arc_tasks)
+        if not arc_tasks:
+            print("No ARC files found matching target extensions.")
+            return total_arc, total_arc_crc, total_matches, total_skipped, total_successful, total_processed
 
     dirs_to_delete = set()
     cwd = os.path.abspath('.')
@@ -295,7 +361,12 @@ def process_arcs(report_file, error_file, arc_buffer, arc_crc_buffer,
         for root, file in tqdm(arc_tasks, desc="Processing ARCs", unit="arc"):
             arc_path = os.path.normpath(os.path.join(root, file))
             folder_name = os.path.splitext(file)[0]
-            dest_folder = os.path.join(arc_folder, folder_name)
+            total_processed += 1
+
+            # Determine sort folder from ARC member extensions
+            members = get_arc_members(arc_path)
+            sort_folder = get_sort_folder(members, "*.?@?", target_exts, arc_root)
+            dest_folder = os.path.join(sort_folder, folder_name)
 
             # Collision guard
             if os.path.exists(dest_folder):
@@ -313,7 +384,7 @@ def process_arcs(report_file, error_file, arc_buffer, arc_crc_buffer,
 
                 # Extract using msdos.exe + PKXARC from within the dest folder
                 result = subprocess.run(
-                    [MSDOS_EXE, PKXARC_EXE, file],
+                    [MSDOS_EXE, PKUNPAK_EXE, file],
                     cwd=dest_folder,
                     stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True
                 )
@@ -333,19 +404,32 @@ def process_arcs(report_file, error_file, arc_buffer, arc_crc_buffer,
                 queue_arc_deletion(root)
 
                 if is_crc_error:
-                    # Move to _arc_errors
-                    err_dest = os.path.join(arc_err_root, folder_name)
+                    # Move to CRC-Errors sorted by extension
+                    crc_ext_folder = os.path.basename(get_sort_folder(members, "*.?@?", target_exts, arc_err_root))
+                    err_dest = os.path.join(arc_err_root, crc_ext_folder, folder_name)
                     os.makedirs(err_dest, exist_ok=True)
-                    shutil.move(dest_folder, err_dest)
+                    for item in os.listdir(dest_folder):
+                        shutil.move(os.path.join(dest_folder, item), os.path.join(err_dest, item))
+                    shutil.rmtree(dest_folder, onerror=force_remove)
+                    # Clean up empty sort folder if nothing else landed there
+                    if os.path.exists(sort_folder) and not os.listdir(sort_folder):
+                        shutil.rmtree(sort_folder, onerror=force_remove)
                     total_arc_crc += 1
                     arc_crc_buffer.append(f"ARC CRC Error: {file}\n")
                     arc_crc_buffer.append(f"  Location: {err_dest}\n")
                     arc_crc_buffer.append("-" * 60 + "\n")
                 else:
                     total_arc += 1
+                    total_successful += 1
                     arc_buffer.append(f"SUCCESS: Extracted {file}\n")
                     arc_buffer.append(f"  Location: {dest_folder}\n")
                     arc_buffer.append("-" * 60 + "\n")
+                    if extension_counts is not None:
+                        for member in members:
+                            _, ext = os.path.splitext(member.lower())
+                            if ext and member.lower().endswith(target_exts):
+                                extension_counts[ext] += 1
+                                total_matches += 1
 
             except Exception as e:
                 shutil.rmtree(dest_folder, onerror=force_remove)
@@ -353,10 +437,10 @@ def process_arcs(report_file, error_file, arc_buffer, arc_crc_buffer,
 
     # Clean up original directories
     for d in sorted(dirs_to_delete, key=lambda p: p.count(os.sep), reverse=True):
-        if os.path.exists(d):
+        if os.path.exists(d) and not os.listdir(d):
             shutil.rmtree(d, onerror=force_remove)
 
-    return total_arc, total_arc_crc
+    return total_arc, total_arc_crc, total_matches, total_skipped, total_successful, total_processed
 
 
 def process_archives(report_file, error_file, process_all=False):
@@ -379,7 +463,7 @@ def process_archives(report_file, error_file, process_all=False):
         print("--ext flag set: processing only ZIPs matching target extensions.")
 
     # Central root folder for all sorted output
-    sorted_root  = os.path.abspath('_sorted')
+    sorted_root  = os.path.abspath('_sorted_zip')
 
     print("Pre-scanning for ZIP files...")
     zip_tasks = []
@@ -638,14 +722,20 @@ def process_archives(report_file, error_file, process_all=False):
     arc_crc_buffer = []
     total_arc      = 0
     total_arc_crc  = 0
-    total_arc, total_arc_crc = process_arcs(
-        report_file, error_file, arc_buffer, arc_crc_buffer, total_arc, total_arc_crc
+    total_arc, total_arc_crc, arc_matches, total_skipped, total_successful, total_processed = process_arcs(
+        report_file, error_file, arc_buffer, arc_crc_buffer, total_arc, total_arc_crc,
+        process_all=process_all, target_exts=target_exts,
+        extension_counts=extension_counts, total_matches=total_matches,
+        total_skipped=total_skipped, total_successful=total_successful,
+        total_processed=total_processed
     )
+    total_matches += arc_matches
 
     # Delete original directories now that all ZIPs and ARCs have been processed
     # Sort by depth deepest first so children are removed before parents
+    # Only delete if the directory is empty — non-archive files are left untouched
     for d in sorted(dirs_to_delete, key=lambda p: p.count(os.sep), reverse=True):
-        if os.path.exists(d):
+        if os.path.exists(d) and not os.listdir(d):
             shutil.rmtree(d, onerror=force_remove)
 
     # Calculate duration
@@ -730,7 +820,9 @@ if __name__ == "__main__":
         print("Please ensure msdos.exe, PKUNZIP.EXE and PKUNPAK.EXE are in the same folder as this script.")
         exit(1)
 
-    rep = 'extraction_report.txt'
+    folder_name = os.path.basename(os.path.dirname(os.path.abspath(__file__)))
+    date_str = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    rep = f"{date_str}_{folder_name}_Report.txt"
     err = 'error_log.txt'
     process_archives(rep, err, process_all=not args.ext)
     print(f"\nScan complete. Opening {rep} now...")
