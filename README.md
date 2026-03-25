@@ -119,8 +119,8 @@ It's a free, small and fast text editor that supports ASCII art with the extensi
 Place the script and prerequisite files in the top level folder that you want to work on.
 
 ```
-python process_zips.py          # Normal mode — Process ALL archives regardless of contents
-python process_zips.py --ext    # process archives containing target extensions
+python search_extract.py          # Normal mode — Process ALL archives regardless of contents
+python search_extract.py --ext    # process archives containing target extensions
 ```
 
 ### `--ext` flag
