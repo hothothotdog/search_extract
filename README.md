@@ -216,14 +216,14 @@ Source directories are only deleted if they are **empty** after processing — a
 
 The script runs inside a full-screen curses TUI. The layout is fixed across the top and splits into two scrolling panels at the bottom.
 
-```
+
 ![](<Clipboard-20260407-01.png>)
 
-```
+
 
 ### `--ext` mode adds two extra rows in the stats block
 
-```
+
 
 ![](<Clipboard-20260407.png>)
 
