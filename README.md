@@ -214,7 +214,7 @@ Source directories are only deleted if they are **empty** after processing — a
 
 ## Terminal Dashboard
 
-The script runs inside a full-screen curses TUI. The layout is fixed across the top and splits into two scrolling panels at the bottom.
+The script runs inside a full-screen curses TUI.
 
 
 ![](<Clipboard-20260407-01.png>)
@@ -242,20 +242,17 @@ The script runs inside a full-screen curses TUI. The layout is fixed across the 
 | **ARC** | ARC archives successfully extracted |
 | **ARC Errors** | ARCs that failed CRC check |
 | **Skipped** | *(--ext mode only)* Archives with no matching content, left untouched |
-
+```
 ### Panel descriptions
 
 **Recent Activity** (left) — one line per archive processed, colour-coded: green for success, yellow for Reduce, red for CRC errors.
 
-**Live Extraction** (right) — individual filenames streamed directly from 7-Zip and pkunzip stdout as each file is written to disk. Fed via a thread-safe `queue.Queue` so it is ready for parallel processing without UI changes.
-
----
+**Live Extraction** (right) — Terminal output streamed directly as each file is written to disk.
 
 ## Report File
 
-A timestamped report is written to the working directory on completion and opened automatically with `os.startfile()`. Its filename follows the pattern:
+A timestamped report is written to the working directory on completion and opened automatically:
 
-```
 YYYY-MM-DD_HH-MM-SS_<parent-folder-name>_Report.txt
 ```
 
