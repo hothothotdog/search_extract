@@ -261,7 +261,7 @@ YYYY-MM-DD_HH-MM-SS_<parent-folder-name>_Report.txt
 
 The report is structured as:
 
-```
+
           EXTRACTION SUMMARY REPORT
 ============================================================
 Date/Time          : 2025-03-14 09:41:22
