@@ -297,12 +297,6 @@ SUCCESS: Extracted and Moved DISK001.ZIP
   [OK] DISK.IMG
 ...
 
-
-
-
----
-
-
 ```
 # Error Handling Summary
 
