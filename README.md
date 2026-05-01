@@ -1,3 +1,10 @@
+This repository has moved to [https://codeberg.org/hothothotdog/search_extract](https://codeberg.org/hothothotdog/search_extract)
+
+This GitHub copy is a frozen archive. New commits, issues, and pull requests should go to Codeberg.
+
+---
+
+
 # search_extract.py
 
 A Windows command-line tool that recursively scans a directory tree for **ZIP** and **ARC** archives, extracts them using the best available extractor, sorts the output by content type, and produces a full extraction report — all inside a live curses terminal dashboard.
